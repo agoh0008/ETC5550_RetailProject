@@ -1,0 +1,892 @@
+---
+title: "Forecasting Australian Retail Trade Volume: An Analysis of ETS and ARIMA Models"
+output: 
+  bookdown::html_document2:
+    number_sections: no
+author: "Alexandra Goh"
+date: "2024-05-05"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+library(fpp3)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(kableExtra)
+library(knitr)
+library(readxl)
+library(tsibble)
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+get_my_data <- function(student_id) {
+  set.seed(student_id)
+  all_data <- readr::read_rds("https://bit.ly/monashretaildata")
+  while(TRUE) {
+    retail <- filter(all_data, `Series ID` == sample(`Series ID`, 1))
+    if(!any(is.na(fill_gaps(retail)$Turnover))) return(retail)
+  }
+}
+# Replace the argument with your student ID
+retail <- get_my_data(29796431)
+
+```
+
+<br> 
+
+## **Statistical features of the Original Data**
+
+<br>
+
+Based on the plot of monthly turnover for the Clothing, Footwear, and Personal Accessory Retailing Industry in Victoria from 1982 to 2022 in Figure \@ref(fig:fig-1), several key observations can be made.
+
+Firstly, there is a noticeable non-linear upward trend in turnover over the years, particularly evident after 2000. This indicates exponential growth in retail turnover, likely driven by factors such as economic expansion and increased consumer spending within the retail industry. Figure \@ref(fig:fig-2) also highlights a distinct seasonal pattern, with sharp peaks occurring consistently each December. This seasonal spike in turnover is likely due to heightened shopping activity during the holiday season, such as Christmas deals and end-of-year promotions. Conversely, there's a noticeable decline in turnover immediately after (i.e., during January or February), likely reflecting reduced discretionary spending post-holiday.
+
+Additionally, there appears to be a moderate increase in sales during mid-year, possibly in May and June, attributed to factors such as seasonal promotions and new merchandise lines. Despite being winter months in Victoria, consumer spending on cold-weather apparel may contribute to this uptick in retail turnover. However, this increase is not as large as the spikes observed during December.
+
+The plot also reveals multiplicative seasonality, where there is a huge increase in variance as the series increases in level and fluctuations in turnover seem to increase in amplitude. This suggests that the variation in turnover is proportional to the level of the series, implying a heightened level of variation in retail turnover levels over time.
+
+One discernible outlier was the large drop in retail turnover during the months of 2020, coinciding with the emergence of the COVID-19 pandemic and subsequent lockdown protocols. This sharp decline emphasizes the detrimental effect the pandemic had on retail businesses during this period. Contributing factors to this downturn include widespread economic uncertainty, prompting consumers to cut back on non-essential expenditures and focus on essential purchases instead. Reduced foot traffic in brick-and-mortar stores, coupled with the temporary closure of non-essential retail outlets during lockdowns, further compounded the impact of COVID-19 on retail businesses. However, a gradual pick-up in retail turnover is observed in the later months of 2022, signaling a potential recovery as COVID-19 begins to subside.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-1
+#| fig-cap: "Original monthly retail turnover in Victoria (clothing, footwear, & personal accessory) from 1982 to 2022"
+
+retail %>% 
+  autoplot(Turnover) +
+  ggtitle("Monthly Retail Turnover in Victoria (Clothing, Footwear, & Personal Accessory)") +
+  ylab("Turnover ($m)") + 
+  labs(subtitle = "(1982-2022)") + 
+  theme(plot.title = element_text(size = 12)) +
+  theme_minimal()
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-2
+#| fig-cap: "Seasonal Plot of Monthly Retail Turnover in Victoria (Clothing, Footwear, & Personal Accessory) from 1982 to 2022"
+
+retail %>% 
+  gg_season(Turnover) +
+  ggtitle("Seasonal Retail Turnover in Victoria (Clothing, Footwear, & Personal Accessory)") +
+  ylab("Turnover ($m)") +
+  labs(subtitle = "(1982-2022)") + 
+  theme_minimal()
+
+```
+
+
+<br>
+
+The retail turnover data also exhibits characteristics of non-stationarity, as indicated by the ACF analysis in Figure \@ref(fig:fig-3). Notably, there is a gradual decline in autocorrelation across lags, where the ACF does not drop quickly to zero. This slow decay implies that past values continue to influence future ones, indicative of a lack of stationarity in the series.
+
+Furthermore, all lags in the ACF are statistically significant, with coefficients exceeding 0.5. This significant autocorrelation across multiple lags reinforces the non-stationary nature of the data, highlighting the presence of temporal dependencies that persist over time.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-3
+#| fig-cap: "Non-stationarity of monthly retail turnover in Victoria: ACF and PACF analysis (1982-2022)"
+
+retail %>%
+  gg_tsdisplay(Turnover, plot_type = "partial") +
+  ggtitle("ACF and PACF of Original Monthly Retail Turnover in Victoria") +
+  labs(subtitle = "(1982-2022)")
+
+```
+
+<br>
+
+## **Transformations and Differencing Used** 
+
+<br>
+
+Given the upward trend and multiplicative seasonal pattern (i.e. large variation that seemed to scale with the level of the series) observed in the original time plot previously, transformations should be applied to help stabilize the variance of the time series and better capture underlying patterns in the data.
+
+Following Guerrero's method for Box Cox lambda selection, an optimal λ value of approximately -0.284 was determined for normalizing the retail data. However, before implementing this transformation, a logarithmic transformation was applied to explore its efficacy. 
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+guerrero_transform <- retail %>% 
+  features(Turnover, guerrero)
+
+kable(guerrero_transform, format = "html", caption = "Guerrero's Selection of Lambda for Retail Turnover Transformation") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+Initial examination indicated promising results, as Figure \@ref(fig:fig-4) shows that the log transformation effectively stabilized the variation in seasonality over time. Although the trend was not completely linearized, the log transformation was deemed sufficient, as it noticeably improved the evenness of variation across different levels of the series (i.e. constant variance).
+
+At the end of the series, despite the log transformation, there is still a noticeable drop and significant fluctuations in retail turnover. This phenomenon can be attributed to the impact of COVID-19 on the retail industry in Victoria during the years 2020-2021. Unlike regular seasonal variations, the sudden and unprecedented nature of the pandemic's effects introduced irregularities that the log transformation was unable to fully account for.
+
+While logarithmic transformations are effective in stabilizing variance and linearizing trends by reducing the proportional differences between high and low values, they are not designed to handle abrupt and extreme events like the COVID-19 pandemic, which disrupt traditional seasonal patterns and introduce outliers. Consequently, while the log transformation helped stabilize the variance and improve the consistency of seasonal patterns across the majority of the retail series, it was insufficient to fully mitigate the effects of the pandemic-induced fluctuations.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-4
+#| fig-cap: Partial autocorrelation plot of the log-transformed monthly retail turnover in Victoria. 
+
+retail %>% 
+  gg_tsdisplay(log(Turnover),
+               plot_type = "partial") +
+  ggtitle("Log-Transformed Monthly Retail Turnover in Victoria")
+
+```
+
+<br>
+
+In the unit root test, the null hypothesis posits that the data are stationary, and we aim to identify evidence suggesting otherwise. A low p-value (typically below 0.05) implies the rejection of the null hypothesis, indicating the need for differencing. This test can be executed using the `unitroot_kpss()` function. In our case, the computed `kpss_p-value` of 0.01 suggests that the actual p-value is less than 0.01, leading to the rejection of the null hypothesis and indicating that the data is not stationary.
+
+<br>
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Original data (before log)
+
+retail %>% 
+  features(Turnover, unitroot_kpss) %>% 
+  kable(format = "html", 
+        caption = "Unit Root Test on Original Data (Before Log Transformation)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+After applying the log transformation, we utilized the `unitroot_nsdiffs()` function to ascertain the number of seasonal differences to apply. The table below indicates that only one seasonal difference was necessary to make the retail data stationary. 
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Original data (after log)
+
+retail %>% 
+  mutate(log_turnover = log(Turnover)) %>% 
+  features(log_turnover, unitroot_nsdiffs) %>% 
+  kable(format = "html", 
+        caption = "Unit Root Test on Original Data (After Log Transformation)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+Subsequently, after applying one seasonal difference, we employed `unitroot_ndiffs()` to determine the appropriate number of first differences. However, the result indicated `ndiffs` = 0, suggesting that no further differencing was required.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Data after seasonal difference 
+
+retail %>% 
+  mutate(log_turnover = difference(log(Turnover), 12)) %>% 
+  features(log_turnover, unitroot_ndiffs) %>% 
+  kable(format = "html",
+        caption = "Unit Root Test on Data After Seasonal Difference") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+Following the strong seasonal pattern observed in our original retail data, we applied one seasonal difference to the transformed dataset. As depicted in Figure \@ref(fig:fig-5), seasonal differencing effectively stabilized the mean by removing fluctuations associated with seasonality, mitigating trends, and eliminating consistent spikes observed at fixed intervals prior to differencing. The nullification of the upward trend in our original time series post-differencing aligns with the intended effect of seasonal differencing.
+
+While the resulting time plot appears reasonably stationary (with the mean hovering around 0 over time), exceptions such as the abrupt drop in retail turnover around 2000-2001 and the impact of COVID-19 towards the end of the series are noteworthy. These events contribute to residual non-stationarity, which becomes apparent in our autocorrelation analysis.
+
+Examining the autocorrelation plots, the ACF exhibits an exponential decay towards zero, indicating that correlations between observations are not persisting over multiple lags. However, significant lags at 6, 12, and 24 months, along with two significant seasonal lags at 12 and 24 months, suggest recurring patterns or seasonality in the data. The PACF plot also reveals significant lags, with the last non-seasonal lag observed at lag 7.
+
+The presence of significant lags in both ACF and PACF, potentially influenced by the extra volatility due to COVID-19, suggests that the model may not fully capture the impact of these events and there is still some non-stationarity left in the data. This residual non-stationarity, particularly the presence of heteroskedastic residuals (varying levels of volatility), will potentially make the prediction interval coverage inaccurate later on. As residual variance is averaged across the series, it may be over-estimated in periods of lower variance and under-estimated in periods of high variance, affecting the coverage of our prediction intervals and potentially leading to suboptimal decision-making.
+
+As a rule of thumb, applying more differences than necessary can introduce false dynamics or autocorrelations that do not truly exist in the time series. Therefore, our unit root tests and Figure \@ref(fig:fig-5) have shown that one seasonal difference is sufficient to achieve stationarity in our retail data.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-5
+#| fig-cap: Partial autocorrelation plot of the seasonally differenced, log-transformed monthly retail turnover data in Victoria. 
+
+# Seasonal Difference Only 
+
+retail %>% 
+  gg_tsdisplay(
+    difference(log(Turnover), 
+               lag = 12
+    ), 
+    plot_type = "partial") +
+  ggtitle("Seasonally Differenced, Log-Transformed Monthly Retail Turnover in Victoria")
+
+```
+
+
+<br> 
+
+## **Choosing Appropriate ARIMA & ETS Models**
+
+<br>
+
+For the ARIMA models, we started by considering several candidate models based on the autocorrelation and partial autocorrelation plots (ACF and PACF) of the data as seen in Figure \@ref(fig:fig-5):
+
+- **AR(7,0,0)(0,1,0)[12]**: We selected this purely autoregressive (AR) model because the last significant non-seasonal lag in the PACF plot is at lag 7, suggesting a potential autoregressive relationship in the data. Additionally, there are no significant seasonal lags in the PACF plot.
+
+- **MA(0,0,6)(0,1,2)[12]**: We chose this purely moving average (MA) model because the last significant non-seasonal lag in the ACF plot is at lag 6, with two significant seasonal lags. This indicates a potential moving average relationship in the data, particularly at these lag intervals.
+
+- **ARMA(0,0,6)(0,1,0)[12]**: We considered this combination of AR and MA components because it allows us to leverage information from both the ACF and PACF plots. This involves using the non-seasonal part of the ACF plot and the seasonal part of the PACF plot. By choosing a model with fewer parameters (as compared to if we used the seasonal part of the ACF and the non-seasonal part of the PACF), we aim for simplicity while capturing the main patterns in the data.
+
+- **ARIMA(3,0,2)(0,1,1)[12]**: We also allowed the `ARIMA()` function to perform a full search in the larger model space (by setting `stepwise` = FALSE) to automatically select the best combination of AR and MA parameters. The model selected by the algorithm was ARIMA(3,0,2)(0,1,1) with drift.
+
+To ensure consistency and address residual heteroscedasticity, we added a constant term to all ARIMA models in the set. Despite applying log transformation and seasonal differencing, residual heteroscedasticity persisted, likely due to the additional volatility introduced by the COVID-19 effect.
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Create retail training set
+
+retail_train <- retail %>% 
+  slice(1:(nrow(retail)-24))
+
+# Fit ARIMA Models
+
+arima_fit <- retail_train %>% 
+  model(
+    ar = ARIMA(log(Turnover) ~ 1 + pdq(7,0,0) + PDQ(0,1,0)),
+    ma = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2)),
+    arma = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,0)),
+    auto = ARIMA(log(Turnover), stepwise = FALSE, approx = FALSE)
+  ) 
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+arima_fit %>%
+  select(-State, -Industry) %>%
+  pivot_longer(everything(), 
+               names_to = "Model name", 
+               values_to = "Orders") %>% 
+  kable(format = "html",
+        caption = "ARIMA model selection") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+When comparing AIC and AICc values, we aim to identify the model that strikes the best balance between goodness of fit and model complexity. A lower AIC and AICc value indicates a better fit of the model to the data, with consideration for the number of parameters used in the model.
+
+In this case, the automatically chosen ARIMA(3,0,2)(0,1,1)[12] model exhibited the lowest AICc among the considered ARIMA models. This suggests that, relative to the other models, the ARIMA(3,0,2)(0,1,1)[12] model is likely to produce the best forecasts as a smaller AICc infers a better predictive performance. 
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+glance(arima_fit) %>% 
+  select(-ar_roots, -ma_roots) %>%
+  arrange(AICc) %>% 
+  kable(format = "html",
+        caption = "ARIMA Model Fits Sorted by AICc") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+In creating a shortlist of ETS models, we considered the underlying characteristics of our original data to select appropriate model specifications:
+
+- **ETS(M,A,M) Model**: We opted for a model with multiplicative error and multiplicative seasonality to account for the seasonal pattern (fluctuations) observed in our initial data, which increases proportionally with the level of the series (i.e. retail turnover levels). Our decision to choose a multiplicative error model was also influenced by the presence of heteroskedasticity in the original series, where the variance changes with the level of the series. Additionally, we incorporated an additive trend component to capture the increasing trend present in our initial data. 
+
+- **ETS(M,N,M) Model**: We also explored an ETS model without a trend component to assess the performance of the model in the absence of a trend.
+
+- **ETS(M,N,A) Model**: Employing the ETS function, we allow for the parameters of error, trend and season to be chosen automatically. The model ultimately selected by the algorithm was ETS(M,N,A), indicating multiplicative errors, no trend, and additive seasonality components.
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+
+ets_fit <- retail_train %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+    none = ETS(Turnover ~ error("M") + trend("N") + season("M")),
+    auto = ETS(Turnover)
+  )
+
+ets_fit %>% 
+  kable(format = "html",
+        caption = "ETS model selection") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE) 
+
+```
+
+<br>
+
+Upon comparing the AIC and AICc values of the considered ETS models, it was evident that the automatically chosen model, ETS(M,N,A), exhibited the lowest values for both AIC and AICc. This suggests that for our retail turnover data, the ETS(M,N,A) model provides the best balance between goodness of fit and model complexity among the compared models.
+
+It's important to note that AICc values are model-specific and depend on the likelihood function used in estimating the model parameters. Hence, comparing AIC and AICc values between ARIMA and ETS models is not straightforward due to their different model classes and likelihood computation methods. AICc is primarily used for model selection within the same class of models (e.g., different ARIMA models or different ETS models) rather than comparing between different types of models (e.g., ARIMA vs. ETS). Each type of model has its own likelihood function and complexity measures, making direct comparison of AICc values between different model classes inappropriate. Additionally, AIC and AICc are relative measures and should be used in conjunction with other diagnostic checks to ensure the selected model adequately fits the data.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+glance(ets_fit) %>% 
+  arrange(AICc) %>% 
+  kable(format = "html",
+        caption = "ETS Model Fits Sorted by AICc") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+When applying the ARIMA models to a test set consisting of the last 24 months of the provided data (from January 2021 to December 2022), we assessed their performance based on the Root Mean Square Error (RMSE). 
+
+Surprisingly, the pure MA model, ARIMA(0,0,6)(0,1,2)[12], demonstrated the best performance with the lowest RMSE of 192. This model outperformed the other ARIMA models in terms of prediction accuracy for the test set.
+
+The auto-selected ARIMA model, ARIMA(3,0,2)(0,1,1)[12] with drift, had an RMSE of 232, indicating slightly higher prediction errors compared to the pure MA model. Meanwhile, the ARMA model, ARIMA(0,0,6)(0,1,0)[12], showed an RMSE of 270, while the pure AR model, ARIMA(7,0,0)(0,1,0)[12], had the highest RMSE of 284 among the ARIMA models considered.
+
+Overall, the MA model provided the most accurate predictions for the test set, suggesting that its reliance on past forecast errors, rather than historical data, proved to be effective in capturing the underlying patterns in the retail turnover data.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Applying ARIMA models to test set
+
+retail_train %>% 
+  model(
+    ar = ARIMA(log(Turnover) ~ 1 + pdq(7,0,0) + PDQ(0,1,0)),
+    ma = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2)),
+    arma = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,0)),
+    auto = ARIMA(log(Turnover) ~ 1 + pdq(3,0,2) + PDQ(0,1,1))
+  ) %>% 
+  forecast(h = "24 months") %>% 
+  accuracy(retail) %>% 
+  arrange(RMSE) %>% 
+  kable(format = "html",
+        caption = "ARIMA Model Fits on Test Set (sorted by RMSE)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+The analysis of the ETS models' performance on the test set indicates that the model with trend, ETS(M,A,M), yielded the most accurate predictions with the lowest RMSE of 248. Surprisingly, the automatically chosen ETS model exhibited the highest RMSE at 266.
+
+Comparing the RMSE values between the ARIMA and ETS models, it's apparent that the ARIMA models generally demonstrated relatively lower RMSE values overall compared to the ETS models. However, further testing of both ARIMA and ETS models through out-of-sample forecasts is essential to obtain a more thorough understanding of their predictive capabilities.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail_train %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+    none = ETS(Turnover ~ error("M") + trend("N") + season("M")),
+    auto = ETS(Turnover ~ error("M") + trend("N") + season("A"))
+  ) %>% 
+  forecast(h = "24 months") %>% 
+  accuracy(retail) %>% 
+  arrange(RMSE) %>% 
+  kable(format = "html",
+        caption = "ETS Model Fits on Test Set (sorted by RMSE)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+## **Model Selection, Diagnostics, and Forecast Comparison**
+
+<br>
+
+Our chosen ARIMA model is the purely moving average (MA) model which is ARIMA(0,0,6)(0,1,2)[12] and has the lowest RMSE (as analysed prior). In terms of its non-seasonal components, `(0,0,6)` indicates there are no autoregressive terms, no differencing, and six moving average terms. 
+
+Meanwhile, the seasonal part is denoted by `(0,1,2)` which denotes no seasonal autoregressive terms, one seasonal differencing, and two seasonal moving average terms.
+
+It can be written in backshift notation as below:
+
+\begin{equation}
+(1 - B^{12})y_t = c + (1 + \theta_1B + \theta_2B^2 + \theta_3B^3 + \theta_4B^4 + \theta_5B^5 + \theta_6B^6)(1 + \Theta_1B^{12} + \Theta_2B^{24})\epsilon_t
+\end{equation}
+
+The parameter estimates for our chosen ARIMA model is shown as below:
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+chosen_arima_fit <- retail_train %>% 
+  model(
+    ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2))
+  )
+
+report(chosen_arima_fit)
+
+```
+
+Our chosen ETS model is ETS(M,A,M), which has the lowest RMSE (as analysed previously) and is a model with multiplicative errors, additive trend, and multiplicative seasonality.
+
+Its state space equation and parameter estimates can be seen as below.
+
+$$
+y_t = (ℓ_{t-1} + b_{t-1}) s_{t-m} (1 + ε_t)
+$$
+
+$$
+ℓ_t = (ℓ_{t-1} + b_{t-1}) (1 + αε_t)
+$$
+
+$$
+b_t = b_{t-1} + β (ℓ_{t-1} + b_{t-1})ε_t
+$$
+
+$$
+s_t = s_{t-m} (1 + γε_t)
+$$
+
+Here's the breakdown of the parameter estimates:
+
+- $l[0]$: Initial level, the starting value for the level component.
+- $b[0]$: Initial trend, the starting value for the trend component.
+- $s[0]$, $s[-1]$, $s[-2]$, ..., $s[-11]$: Initial seasonal factors and their values for the last 11 seasonal periods.
+- $α$: Smoothing parameter for the level.
+- $β$: Smoothing parameter for the trend.
+- $γ$: Smoothing parameter for the seasonal component.
+- $θ_1$, $θ_2$, $θ_3$: Multiplicative seasonal parameters for the first, second, and third seasonal lags respectively.
+- $ε_t$: The variance of the error term ($σ^2$) is 0.0075.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+chosen_ets_fit <- retail_train %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  )
+
+report(chosen_ets_fit)
+
+
+```
+
+When selecting models, we prioritize RMSE over AICc for several key reasons:
+
+1. AICc relies on the likelihood function based on the in-sample data. It penalizes the number of parameters to avoid overfitting, thereby providing a balance between fit and complexity. However, AICc is dependent solely on historical data and assumes that past data patterns will continue into the future. Meanwhile, RMSE evaluates the model's predictive performance on a separate test set, thereby directly assessing the model's ability to generalize to new data. It measures the average magnitude of the errors between predicted and actual values, giving a clear indication of the model's accuracy in real-world forecasting scenarios.
+
+2. While AICc is a robust measure for comparing models within the same class, its reliability diminishes if the underlying time series dynamics change. In scenarios where the historical patterns are disrupted (e.g., due to economic shocks like COVID-19), AICc may favor models that were historically accurate but fail to adapt to new patterns. In contrast, since RMSE is calculated based on out-of-sample data, it inherently accounts for any recent changes in the time series dynamics. This makes RMSE a more reliable indicator of a model's performance under current conditions, especially when there have been recent shifts in the underlying data patterns.
+
+3. Lastly, a model with the lowest AICc is likely to provide a good fit to historical data, but it does not guarantee the best forecasting accuracy. A model selected based on AICc might perform poorly on future data if it overfits to the historical sample. Conversely, as it is directly related to forecasting accuracy, RMSE measures how well the model predicts new, unseen data. A lower RMSE indicates better predictive performance, which is crucial for practical forecasting applications where future accuracy is prioritized.
+
+Looking at the residual plots for our chosen ARIMA model in Figure \@ref(fig:fig-6), the innovation residuals appear to be relatively centered around zero, indicating that the model is capturing the overall trend and seasonality reasonably well. However, noticeable deviations from this center, particularly towards the end of the series, suggest that the model might not have fully accounted for the unprecedented nature and disruptive impact of COVID-19. Consequently, it may not adequately capture anomalies or irregularities induced by this event.
+
+Ideally, for a series to exhibit white noise characteristics, residuals should be independent and identically distributed, implying the absence of autocorrelation. However, in this instance, the presence of significant autocorrelations at lags 5, 6, 7, and 9 deviates from the expected white noise pattern. This suggests that the model might not be capturing all the underlying patterns or that there are some systematic features in the data that are not accounted for by the model. The consequence of this is that our forecasts may not be as reliable (i.e. over- or under-estimations of future values), especially if the autocorrelation patterns persist into the forecast horizon. This is because if the residuals are not white noise, it means there is information  left in the residuals that could have been used to make better forecasts. 
+
+However, the variance of the residuals appears to be relatively constant, except for periods of high variance around early 2001-2002 and after 2020. This indicates that the model adequately captures the variability in the data for most of the time series, but there are specific periods where the variability is not fully explained by the model. The histogram of the residuals also suggests that they approximately follow a normal distribution, which is desirable for a well-fitted model.
+
+Overall, the chosen ARIMA model seems to provide a reasonable fit to the data, aside from the residual autocorrelation issue. Despite the presence of autocorrelation, the model's ability to capture the overall trend, seasonality, and variance of the data, along with the approximate normal distribution of residuals, suggests a relatively good fit.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-6
+#| fig-cap: Residual plots for the ARIMA(0,0,6)(0,1,2) model.
+
+chosen_arima_fit %>% 
+  gg_tsresiduals() +
+  ggtitle("Residuals of Chosen ARIMA Fit")
+
+```
+
+<br>
+
+Based on the Ljung-Box test results for our ARIMA model, the p-value is very small (much less than the conventional significance level of 0.05) at 1.32e-6. Hence, we reject the null hypothesis that the data are independently distributed (i.e., white noise). This suggests that the autocorrelations of the residuals are statistically significant at one or more lags, indicating that they are distinguishable from a white noise series.
+
+Therefore, we can conclude that the residuals of the ARIMA model are not entirely consistent with white noise, further supporting the earlier observation of residual autocorrelation. This implies that there is still some systematic information left in the residuals that the model did not capture. This could potentially affect the accuracy of our ARIMA model forecasts later on.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+augment(chosen_arima_fit) %>% 
+  features(.innov, ljung_box, lag = 24, dof = 9) %>% 
+  kable(format = "html",
+        caption = "Ljung-Box Test Results (ARIMA Model)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+Similar to the ARIMA model, Figure \@ref(fig:fig-7) shows that the residuals exhibit a mean centered around zero, suggesting that the ETS model effectively captures the general trend and seasonality. However, deviations from this central tendency, notably observed around the periods of early 2001-2002 and post-2020, hint at potential external influences such as the disruptive impact of the COVID-19 pandemic. The variance of the residuals also remains relatively constant throughout the series, indicating that the model effectively captures the variability present in the data.
+
+Looking at the ACF plot, the ETS residuals have fewer significant lags compared to the ARIMA model, with significant lags observed at lags 1, 5, and 8. This suggests that the ETS model may be relatively better at removing autocorrelation from the data, leading to residuals that are slightly closer to white noise.
+
+Additionally, compared to the ARIMA model, the ACF of the residuals in the ETS model shows more of an exponential decay towards zero, indicating a faster decrease in autocorrelation as the lag increases. The histogram of the residuals also displays an approximately normal distribution.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-7
+#| fig-cap: Residual plots for the ETS(M,A,M) model.
+
+chosen_ets_fit %>% 
+  gg_tsresiduals() +
+  ggtitle("Residuals of Chosen ETS Fit")
+
+```
+
+<br>
+
+Regarding the Ljung-Box test results for the ETS model, the Ljung-Box statistic (`lb_stat`) is 158 with a corresponding p-value of 0. This indicates strong evidence against the null hypothesis, meaning that the autocorrelations of the residuals are statistically significant at one or more lags, similar to the ARIMA model.
+
+Overall, while the ETS model provides a reasonable fit to the data, with fewer significant autocorrelations compared to the ARIMA model, there are still deviations from ideal white noise behavior, indicating potential areas for further refinement.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+augment(chosen_ets_fit) %>% 
+  features(.innov, ljung_box, lag = 24) %>% 
+  kable(format = "html",
+        caption = "Ljung-Box Test Results (ETS Model)") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+Table 13 showcases the point forecasts for the test set, covering the last 24 months of the provided data, as generated by the chosen ARIMA model.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail_train %>% 
+  model(ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2))) %>% 
+  forecast(h = "24 months") %>% 
+  hilo() %>% 
+  kable(format = "html",
+        caption = "Point Forecasts for Test Set (ARIMA Model)") %>%
+  kable_styling(full_width = FALSE) %>%
+  scroll_box(height = "300px") %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+
+Meanwhile, Table 14 presents the point forecasts for the test set, derived from the ETS model.
+
+<br>
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail_train %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  ) %>% 
+  forecast(h = "24 months") %>% 
+  hilo() %>% 
+  kable(format = "html",
+        caption = "Point Forecasts for Test Set (ETS Model)") %>%
+  kable_styling(full_width = FALSE) %>%
+  scroll_box(height = "300px") %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+
+<br>
+
+Based on Figure \@ref(fig:fig-8), the ETS model exhibits narrower prediction intervals compared to our chosen ARIMA model. Narrower intervals usually indicate higher precision in prediction, suggesting a higher confidence in the forecasted values. However, it's important to ensure that these intervals adequately cover the actual values.
+
+In this case, despite the narrower prediction intervals of the ETS model, its forecasted values are notably lower than those of the ARIMA model. This leads to a disparity when comparing the actual values with the forecasted ones, as illustrated by the dotted lines representing the last 24 months of the original retail data. In this regard, the ARIMA model seems to provide more accurate point forecasts, as they align better with the actual data.
+
+Yet, both models appear to capture the seasonal patterns observed in the historical data, such as the smaller peak in the middle of the year followed by a larger uplift towards the end of the year, likely corresponding to the increase in retail sales during the holiday or Christmas seasons. This indicates that both models are capable of capturing the inherent seasonal variations in the data.
+
+The lower-than-expected forecasted values could partly be attributed to the lingering effects of the COVID-19 pandemic on retail turnover. It's possible that the models are overly conservative in their predictions, reflecting the impact of the pandemic-induced downturn. However, it's essential to balance this consideration with the need for accurate forecasts that not only account for the current impact of the pandemic on retail activities but also anticipate the potential recovery or normalization in the future post-pandemic retail landscape.
+
+In terms of timing of the peaks, both models seem to forecast the middle-year peaks slightly later than when they actually occur. This delay in capturing the peaks results in the prediction intervals failing to cover most of the actual values during these periods. However, it's worth noting that both models accurately predict the large end-of-year peaks. Hence, adjustments may be necessary to improve the timing of peak predictions and ensure better coverage within the intervals.
+
+Upon closer examination, the ARIMA model's forecasts align more closely with the actual numbers compared to the ETS model, as evidenced by the ARIMA model's prediction intervals covering the actual values relatively more than those of the ETS model (even though the ARIMA model's intervals still don't fully capture all actual values). 
+
+When examining the accuracy metrics provided in Tables 9 and 10 (which compute the accuracy of the point forecasts for each model against the actual values in the test set), it's evident that the ARIMA model exhibits a lower RMSE (191.5) compared to the ETS model (247.6). This suggests that, on average, the ARIMA model's forecasts are closer to the actual values compared to those of the ETS model, as RMSE is a measure of the average deviation of predicted values from the actual values, with lower RMSE values indicating better accuracy.
+
+Overall, the evidence strongly indicates that the ARIMA model outperforms the ETS model in forecasting accuracy, at least for the retail test set, though there is potential for further refinement.
+
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-8
+#| fig-cap: Forecast of Victoria's monthly retail turnover for 2021-2022 (test set) using ARIMA and ETS models. The plot shows the model predictions and their respective intervals, providing a range of possible future values.
+
+train_combined_fit <- retail_train %>% 
+  model(
+    arima = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2)), 
+    ets = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  )
+
+train_combined_fit %>% 
+  forecast(h = "24 months") %>% 
+  autoplot(tail(retail_train, 10*12)) +
+  autolayer(tail(retail, 10*12), series = "Actual", PI = FALSE, linetype = "dotted") +
+  labs(title="Victoria Monthly Retail Turnover Forecast: \nARIMA & ETS Model Predictions and Intervals (2021-2022)", y="Turnover ($m)" ) +
+  theme_minimal()
+
+```
+
+
+<br>
+
+
+## **Out-of-Sample Forecasting and Prediction Intervals for Chosen Models**
+
+<br>
+
+We fit our chosen ARIMA model, which is ARIMA(0,0,6)(0,1,2)[12], to our full dataset. The new re-estimated parameters can be seen as below:
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+arima_full <- retail %>% 
+  model(
+    ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2))
+  )
+
+report(arima_full)
+
+```
+
+<br>
+
+Comparing the parameter estimates for the moving average terms (`ma1` to `ma6`), we notice that most estimates are higher in the model fitted to the whole dataset compared to the training set model. For instance, `ma1` to `ma5` have higher estimates in the whole dataset model, suggesting that the model might be placing more emphasis on recent observations when trained on the entire dataset. Conversely, some estimates might be lower in the whole dataset model. For instance, `ma6` exhibit lower estimates in the whole dataset model, indicating potentially different patterns or dynamics captured by the model when trained on a larger dataset.
+
+As for the moving average terms, `sma1` and `sma2` decreased in magnitude in the ARIMA model fitted to the whole dataset compared to the model fitted to the training set. This suggests that, when considering the entire dataset, the model places relatively less emphasis on the seasonal components captured by these parameters. However, it's essential to note that despite the decrease, these terms remain negative, indicating a dampening effect on the seasonal fluctuations in the time series.
+
+Meanwhile, the AICc value decreased from -936.07 for the model fitted to the training set to -879.17 for the model fitted to the whole dataset. In this case, the ARIMA model fitted to the training set with an AICc of -936.07 is a better fit compared to the model fitted to the whole dataset with an AICc of -879.17.
+
+Below are the re-estimated parameters for our selected ETS(M,A,M) model, which we also fitted to the complete dataset:
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+ets_full <- retail %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  )
+
+report(ets_full)
+
+```
+
+<br>
+
+The smoothing parameter `alpha` dictates the level smoothing, controlling how much weight recent observations hold in updating the level component of the time series. With a higher `alpha` value in the whole dataset model, it implies a greater responsiveness to recent changes in the data due to the increased emphasis on recent observations.
+
+On the other hand, the smoothing parameter `beta` is responsible for trend smoothing. Despite minor differences, the similarity in `beta` values suggests comparable behavior in capturing trend changes when fitting the chosen ETS model to both the training and whole datasets.
+
+As for `gamma`, which governs the smoothing parameter for the seasonal component, the lower value in the whole dataset model suggests a relatively decreased emphasis on seasonal patterns compared to the training set model.
+
+The estimated variance ($σ^2$) of the model residuals is higher in the whole dataset model compared to the training set model. This suggests that the whole dataset model may have larger residuals or errors compared to the training set model, indicating greater variability or uncertainty.
+
+Table 15 displays the out-of-sample point forecasts and corresponding 80% prediction intervals generated by fitting the chosen ARIMA model to the complete dataset. These forecasts cover a 24-month horizon, spanning from January 2023 to December 2024.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail %>% 
+  model(ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2))) %>% 
+  forecast(h = "24 months") %>% 
+  hilo(level = 80) %>% 
+  kable(format = "html",
+        caption = "Out-of-Sample Point Forecasts and 80% Prediction Intervals for ARIMA Model (Full Data Set)") %>%
+  kable_styling(full_width = FALSE) %>%
+  scroll_box(height = "300px") %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+
+<br>
+
+Meanwhile, Table 16 presents the out-of-sample point forecasts and their corresponding 80% prediction intervals, which were computed by applying the selected ETS model to the whole dataset as well. These projections also extend over a 24-month period, encompassing January 2023 through December 2024.
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail %>% 
+  model(
+    trend = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  ) %>% 
+  forecast(h = "24 months") %>% 
+  hilo(level = 80) %>% 
+  kable(format = "html",
+        caption = "Out-of-Sample Point Forecasts and 80% Prediction Intervals for ETS Model (Full Data Set)") %>%
+  kable_styling(full_width = FALSE) %>%
+  scroll_box(height = "300px") %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+
+
+## **Comparison of Forecasts with Actual Data from ABS**
+
+<br>
+
+Based on Figure \@ref(fig:fig-9),  the ETS model exhibits wider prediction intervals compared to the ARIMA model, suggesting potentially greater uncertainty in the ETS model’s forecasts.
+
+However, upon further investigation, the out-of-sample point forecasts for the ETS model demonstrate remarkable accuracy in capturing the actual ABS numbers from January 2023 to March 2024. The green solid line representing the ETS model closely aligns with the dotted line representing the ABS actual data, indicating a strong correspondence between forecasted and observed values. Moreover, the ETS model adeptly captures seasonal patterns - for instance, it accurately reflects the occurrence of a smaller peak in retail turnover during the middle of the year, likely corresponding to mid-year sales events, followed by a larger uplift towards the end of the year, possibly due to holiday shopping seasons.
+
+In contrast, although the ARIMA model's point forecasts also reflect seasonal patterns, they consistently underestimate the ABS actual numbers (except for the large peak at the end of 2023). This discrepancy suggests a limitation in the ARIMA model's ability to accurately predict future values, particularly when compared to the ETS model's performance. 
+
+<br>
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+abs <- read_excel("8501011.xlsx", sheet = "Data1", skip = 9)
+
+# Rename the first column and select only the "Year" and "A3349727C" columns
+abs <- abs %>%
+  rename(Year = names(abs)[1]) %>%
+  select(Year, A3349727C)
+
+abs <- abs %>% 
+  rename(Turnover = names(abs[2]))
+
+# Convert 'Year' column to Date class
+abs$Year <- as.Date(abs$Year)
+
+# Convert 'abs' data.frame to a tsibble
+abs_tsibble <- abs %>% as_tsibble(index = Year)
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+# Rename "Year" to "Month" in abs_tsibble
+names(abs_tsibble)[names(abs_tsibble) == "Year"] <- "Month"
+
+# Convert 'yearmon' class to 'Date' class
+abs_tsibble$Month <- as.Date(abs_tsibble$Month, "%Y %b")
+
+# Change format to "YYYY Month"
+abs_tsibble$Month <- format(abs_tsibble$Month, "%Y %B")
+
+# Add "State" and "Industry" columns to abs_tsibble
+abs_tsibble$State <- "Victoria"
+abs_tsibble$Industry <- "Clothing, footwear and personal accessory retailing"
+abs_tsibble$`Series ID` <- "A3349727C"
+
+# Rearrange columns
+abs_tsibble <- abs_tsibble %>%
+  select(State, Industry, `Series ID`, Month, Turnover)
+
+# Convert "Month" column back to 'yearmonth' class
+abs_tsibble$Month <- yearmonth(abs_tsibble$Month)
+
+# Convert abs_tsibble to a tbl_ts object
+abs_tsibble <- as_tsibble(abs_tsibble, 
+                          index = Month, 
+                          key = c(State, Industry, `Series ID`))
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+full_combined_fit <- retail %>% 
+  model(
+    arima = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2)), 
+    ets = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  )
+
+```
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align = 'center'}
+#| label: fig-9
+#| fig-cap: Comparison of selected ARIMA and ETS models for forecasting Victoria’s monthly retail turnover (2023-2024). The models are fitted to the entire dataset, providing out-of-sample point forecasts and prediction intervals for two years beyond the provided data. The actual ABS data is also included for reference and contrast, shown as the dotted line.
+
+
+full_combined_fit %>% 
+  forecast(h = "24 months") %>% 
+  autoplot(tail(retail, 10*12)) +
+  autolayer(tail(abs_tsibble, 10*12), series = "Actual", PI = FALSE, linetype = "dotted") +
+  labs(title="Victoria Retail Turnover: \nForecast vs Actual ABS Data (2023-2024)", 
+       y="Turnover ($m)" ) +
+  theme_minimal()
+
+```
+
+<br>
+
+Looking at the RMSE metrics for both models, we observe that the ETS model's RMSE stands at 62.92, indicating an average magnitude of forecast errors around 62.92. This value is notably lower than the RMSE of 94.88 for the ARIMA model. Given that a lower RMSE suggests better predictive accuracy, it is evident that the ETS model outperforms the ARIMA model in forecasting the turnover for the clothing, footwear, and personal accessory retailing industry in Victoria.
+
+In summary, the ETS model demonstrates superior forecasting performance by closely aligning with the actual ABS numbers and achieving a lower RMSE value compared to the ARIMA model, despite having larger prediction intervals.
+
+<br>
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+retail %>% 
+  model(
+    "ARIMA(Turnover)" = ARIMA(log(Turnover) ~ 1 + pdq(0,0,6) + PDQ(0,1,2)), 
+    "ETS(Turnover)" = ETS(Turnover ~ error("M") + trend("A") + season("M"))
+  ) %>% 
+  forecast(h = "24 months") %>% 
+  accuracy(abs_tsibble) %>% 
+  arrange(RMSE) %>% 
+  kable(format = "html",
+        caption = "Accuracy Metrics for Chosen ARIMA and ETS Models Compared with Actual ABS Data") %>%
+  kable_styling(full_width = FALSE) %>% 
+  row_spec(0, color = "white", background = "black", bold = TRUE)
+
+```
+
+<br>
+
+
+## **Evaluation of ARIMA & ETS Model Benefits and Limitations**
+
+<br>
+
+In our analysis of forecasting models for predicting retail turnover, we employed both the ARIMA(0,0,6)(0,1,2)[12] and ETS(M,A,M) models, each demonstrating distinct advantages and limitations. 
+
+The ARIMA(0,0,6)(0,1,2)[12] model effectively captures seasonal patterns through its seasonal differencing (D=1) and seasonal moving average terms (Q=2), making it suitable for forecasting scenarios with pronounced seasonal variations such as in this case for retail turnover data. Additionally, the six non-seasonal moving average terms (q=6) help account for the autocorrelation structure, resulting in accurate trend and seasonal pattern predictions. This combination enables the model to robustly handle trends, ensuring accurate forecasts even in the presence of trend-related variations. Moreover, the ARIMA model utilizes historical information to inform future forecasts, leveraging past patterns to make predictions.
+
+However, the ARIMA(0,0,6)(0,1,2)[12] model exhibits some limitations. For instance, its performance heavily relies on accurate parameter selection. Incorrect specification, especially during unprecedented events such as COVID-19, can thus lead to suboptimal forecasts. Furthermore, the assumption of stationarity may not hold during extreme economic disruptions such as those induced by COVID-19, which caused significant shifts in consumer behavior and economic activity, resulting in changing seasonal patterns in various industries including retail. While the ARIMA model could account for seasonal variations, it may struggle to fully capture these irregularities, potentially leading to forecast inaccuracies exacerbated by the effects of COVID-19 such as those previously observed in Figure \@ref(fig:fig-9). Last but not least, the presence of significant autocorrelations in the residuals indicates that the model might not be capturing all the underlying patterns or that there are systematic features in the data that are not accounted for - this could reduce forecast reliability.
+
+Meanwhile, the ETS(M,A,M) model offers distinct advantages in forecasting retail turnover. Its adaptability to changing data patterns allows it to effectively capture evolving trends and seasonality over time. Additionally, its multiplicative error and seasonality components, along with the additive trend, produce stable and smooth forecasts, making the ETS model ideal for consistent prediction requirements. Compared to the ARIMA model, the ETS model also generally shows fewer significant autocorrelations in residuals, indicating better removal of autocorrelation from the data. 
+
+However, the ETS model also primarily relies on recent observations, which may overlook long-term trends and patterns that are crucial for accurate long-term forecasting. Although it has fewer significant autocorrelations in its residuals compared to the ARIMA model, their presence still suggests areas for improvement, indicating that the model may not fully capture all systematic information.
+
+To summarise, both the ARIMA(0,0,6)(0,1,2)[12] and ETS(M,A,M) models provide reasonable fits to the retail turnover data. The ARIMA model excels in leveraging historical data and capturing seasonal patterns but struggles with parameter sensitivity and residual autocorrelation. The ETS model adapts well to changing patterns and produces smoother forecasts but can overlook long-term trends and requires careful parameter estimation. Further refinement of both models is necessary to address residual autocorrelation and enhance forecast accuracy, especially in the face of unprecedented events such as COVID-19.
+

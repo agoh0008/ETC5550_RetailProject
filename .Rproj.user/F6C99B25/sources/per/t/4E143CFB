@@ -1,0 +1,30 @@
+{
+    "id": "4E143CFB",
+    "path": "C:/Users/USER/Desktop/UNI/MASTERS OF BUSINESS ANALYTICS/SEM 1 2024/ETC5550 - Applied Forecasting/ASSIGNMENTS/RETAIL PROJECT/retailproj_29796431.Rmd",
+    "project_path": "retailproj_29796431.Rmd",
+    "type": "r_markdown",
+    "hash": "1135827434",
+    "contents": "",
+    "dirty": false,
+    "created": 1714922981134.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "197,0",
+        "scrollLine": "0",
+        "last_setup_crc32": "",
+        "chunk_output_type": "console",
+        "ignored_words": "stationarity,autocorrelations\n"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1716544929,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1716544929298,
+    "read_only": false,
+    "read_only_alternatives": []
+}

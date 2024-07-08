@@ -1,0 +1,16 @@
+"0",""
+"0","aus_production %>% "
+"0","  gg_tsdisplay(difference("
+"0","    difference(box_cox(Electricity, lambda = 0.2), "
+"0","               lag = 4"
+"0","               )"
+"0","    ), "
+"0","    plot_type = ""partial"")"
+"2","Warning:"
+"2"," [38;5;232mRemoved 5 rows containing missing values or values outside the scale
+range (`geom_line()`).[39m
+"
+"2","Warning:"
+"2"," [38;5;232mRemoved 5 rows containing missing values or values outside the scale
+range (`geom_point()`).[39m
+"

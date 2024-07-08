@@ -1,0 +1,7 @@
+"0","# QUARTERLY CEMENT ETS VS ARIMA"
+"0",""
+"0","cement <- aus_production |>"
+"0","  select(Cement) |>"
+"0","  filter_index(""1988 Q1"" ~.)"
+"0",""
+"0","cement |> autoplot(Cement)"

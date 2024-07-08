@@ -1,0 +1,5 @@
+"0",""
+"0",""
+"0","fit %>% "
+"0","  forecast(h = ""10 years"") %>% "
+"0","  autoplot(tail(aus_production, 4*10)) # look at last 10 years of the data"

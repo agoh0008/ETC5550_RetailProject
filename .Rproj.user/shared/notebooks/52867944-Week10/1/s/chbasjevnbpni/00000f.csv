@@ -1,0 +1,13 @@
+"0",""
+"0","aus_turnover %>% "
+"0","  gg_tsdisplay("
+"0","    difference(log(Turnover), lag = 12), # monthly data --> seasonal difference"
+"0","    plot_type = ""partial"")"
+"2","Warning:"
+"2"," [38;5;232mRemoved 12 rows containing missing values or values outside the scale
+range (`geom_line()`).[39m
+"
+"2","Warning:"
+"2"," [38;5;232mRemoved 12 rows containing missing values or values outside the scale
+range (`geom_point()`).[39m
+"

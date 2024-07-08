@@ -1,0 +1,5 @@
+"0",""
+"0","global_economy %>% "
+"0","  filter(Country == ""Switzerland"") %>% "
+"0","  autoplot(Population)"
+"0",""

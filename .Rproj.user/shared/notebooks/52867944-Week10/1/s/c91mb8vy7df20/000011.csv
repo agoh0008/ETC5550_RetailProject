@@ -1,0 +1,5 @@
+"0",""
+"0","# unexpected: 2, 1, 1 for seasonal part "
+"0",""
+"0","# reason why seasonal AR = 2 makes sense here: combination of seasonal and non-seasonal AR -> look at backshift notation in tutorial 10 video"
+"0",""

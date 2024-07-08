@@ -1,0 +1,7 @@
+"0","# non-stationary data "
+"0","# slow decay in ACF + still got lags in PACF "
+"0","# do another difference "
+"0",""
+"0","# not much trend, but still got changing variance in plot above "
+"0",""
+"0",""

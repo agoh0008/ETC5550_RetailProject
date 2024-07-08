@@ -1,0 +1,5 @@
+"0",""
+"0","# Step 1: transform(square root?)"
+"0",""
+"0","aus_production %>% "
+"0","  autoplot(sqrt(Electricity))"

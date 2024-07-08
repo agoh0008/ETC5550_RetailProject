@@ -1,0 +1,6 @@
+"0","# take lag = 4 because it's quarterly data"
+"0",""
+"0","# still not stationary: variance small at the start, then gets larger after "
+"0",""
+"0","# need to try using Box-Cox"
+"0",""

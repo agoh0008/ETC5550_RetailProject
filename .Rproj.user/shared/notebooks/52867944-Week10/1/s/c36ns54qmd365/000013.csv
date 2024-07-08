@@ -1,0 +1,4 @@
+"0",""
+"0","# sharp spike at the end is not proportional to level of the series "
+"0","# explains why even with lambda = 0.2, end of the series has large variance (cannot clean up this last bit)"
+"0",""
